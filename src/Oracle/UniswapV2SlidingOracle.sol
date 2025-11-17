@@ -117,4 +117,32 @@ contract UniswapV2SlidingOracle is UniswapV2SlidingOracleStorage {
             return _computeAmountOut(firstObs.price1Cumulative, p1, timeElapsed, amountIn);
         }
     }
+
+    // returns TWAP price of 1 tokenIn in terms of tokenOut, with 1e18 precision
+    function twapPrice(address tokenIn, address tokenOut) external view returns (uint256 price1e18) {
+        address pair = UniswapV2Library.pairFor(factory, tokenIn, tokenOut);
+        Observation storage firstObservation = _firstObservation(pair);
+
+        uint timeElapsed = block.timestamp - firstObservation.timestamp;
+        require(timeElapsed <= windowSize, "SlidingWindowOracle: MISSING_HISTORICAL_OBSERVATION");
+        // should never happen.
+        require(timeElapsed >= windowSize - periodSize * 2, "SlidingWindowOracle: UNEXPECTED_TIME_ELAPSED");
+
+        // current cumulative prices
+        (uint price0Cumulative, uint price1Cumulative, ) = currentCumulativePrices(pair);
+        (address token0, ) = UniswapV2Library.sortTokens(tokenIn, tokenOut);
+
+        uint224 priceX112;
+        if (token0 == tokenIn) {
+            // price of token0 in terms of token1: Δprice0Cumulative / Δtime → UQ112x112
+            priceX112 = uint224((price0Cumulative - firstObservation.price0Cumulative) / timeElapsed);
+        } else {
+            // price of token1 in terms of token0: Δprice1Cumulative / Δtime → UQ112x112
+            priceX112 = uint224((price1Cumulative - firstObservation.price1Cumulative) / timeElapsed);
+        }
+
+        // priceX112 is UQ112x112 (fixed point with 112 fractional bits)
+        // convert to 1e18 precision: price1e18 = priceX112 * 1e18 / 2^112
+        price1e18 = priceX112.mul(1e18) >> 112;
+    }
 }
