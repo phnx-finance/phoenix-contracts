@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-import "../Vault/Vault.sol";
+import "../interfaces/IVault.sol";
 import "../interfaces/IPUSDOracle.sol";
 
 abstract contract PUSDOracleStorage is IPUSDOracle {
     /* ========== State Variables ========== */
 
     // System contracts
-    Vault public vault;
+    IVault public vault;
     address public pusdToken;
 
     mapping(address => TokenConfig) public tokens;

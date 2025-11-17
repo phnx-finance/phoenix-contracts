@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
+import "../interfaces/IVault.sol";
 import "../interfaces/IPUSDOracle.sol";
 import "./PUSDOracleStorage.sol";
 import "../interfaces/IUniswapOracle.sol";
@@ -44,7 +45,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         require(_vault != address(0), "Invalid vault");
         require(_pusdToken != address(0), "Invalid PUSD");
 
-        vault = Vault(_vault);
+        vault = IVault(_vault);
         pusdToken = _pusdToken;
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);

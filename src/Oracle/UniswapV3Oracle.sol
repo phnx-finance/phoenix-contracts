@@ -2,15 +2,16 @@
 pragma solidity ^0.8.20;
 
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
-import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
-import "@uniswap/v3-core/contracts/libraries/FullMath.sol";
+import "../libraries/TickMath.sol";
+import "../libraries/FullMath.sol";
 import "./UniswapV3OracleStorage.sol";
 
 /// @title UniswapV3Oracle
 /// @notice Pure TWAP oracle based on Uniswap V3 pool observation data.
 /// @dev One oracle instance corresponds to exactly one Uniswap V3 pool (token0-token1 pair).
 contract UniswapV3Oracle is UniswapV3OracleStorage {
-
+    using FullMathCompat for uint256;
+    using TickMathCompat for int24;
     constructor(address _pool, uint32 _twapInterval) {
         if (_pool == address(0)) revert OracleV3_InvalidPool();
         if (_twapInterval == 0) revert OracleV3_ZeroInterval();
@@ -64,19 +65,19 @@ contract UniswapV3Oracle is UniswapV3OracleStorage {
         require(amountIn > 0, "OracleV3: ZERO_INPUT");
 
         int24 avgTick = _getTwapTick();
-        uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(avgTick);
+        uint160 sqrtPriceX96 = avgTick.getSqrtRatioAtTick();
 
         if (tokenIn == token0) {
             
             // token0 → token1
             // amountOut = amountIn * (sqrtP^2 / 2^192)
-            uint256 amountInX192 = FullMath.mulDiv(amountIn, sqrtPriceX96, 1 << 96);
-            amountOut = FullMath.mulDiv(amountInX192, sqrtPriceX96, 1 << 96);
+            uint256 amountInX192 = amountIn.mulDiv(sqrtPriceX96, 1 << 96);
+            amountOut = amountInX192.mulDiv( sqrtPriceX96, 1 << 96);
         } else if (tokenIn == token1) {
             // token1 → token0
             // amountOut = amountIn * (2^192 / sqrtP^2)
-            uint256 amountInX96 = FullMath.mulDiv(amountIn, 1 << 96, sqrtPriceX96);
-            amountOut = FullMath.mulDiv(amountInX96, 1 << 96, sqrtPriceX96);
+            uint256 amountInX96 = amountIn.mulDiv(1 << 96, sqrtPriceX96);
+            amountOut = amountInX96.mulDiv(1 << 96, sqrtPriceX96);
         } else {
             revert OracleV3_InvalidToken();
         }
