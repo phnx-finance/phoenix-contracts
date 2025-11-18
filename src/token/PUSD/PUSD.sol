@@ -9,7 +9,14 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../../interfaces/IPUSD.sol";
 import "./PUSDStorage.sol";
 
-contract PUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable, PUSDStorage {
+contract PUSD is
+    Initializable,
+    ERC20Upgradeable,
+    AccessControlUpgradeable,
+    PausableUpgradeable,
+    UUPSUpgradeable,
+    PUSDStorage
+{
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -27,9 +34,6 @@ contract PUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, Paus
         cap = _cap;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
-
-    // Note: Paused/Unpaused events are already defined in PausableUpgradeable
-    // Note: Upgraded event is already defined in UUPSUpgradeable
 
     /**
      * @dev Override grantRole function to ensure MINTER_ROLE can only be granted once
