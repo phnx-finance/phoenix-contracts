@@ -8,14 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./PUSDStorage.sol";
 
-contract PUSD is
-    Initializable,
-    ERC20Upgradeable,
-    AccessControlUpgradeable,
-    PausableUpgradeable,
-    UUPSUpgradeable,
-    PUSDStorage
-{
+contract PUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable, PUSDStorage {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -33,11 +26,6 @@ contract PUSD is
         cap = _cap;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
-
-    // Core business events
-    event Minted(address indexed to, uint256 amount, address indexed minter);
-    event Burned(address indexed from, uint256 amount, address indexed burner);
-    event MinterRoleLocked(address indexed minter, address indexed admin);
 
     // Note: Paused/Unpaused events are already defined in PausableUpgradeable
     // Note: Upgraded event is already defined in UUPSUpgradeable
