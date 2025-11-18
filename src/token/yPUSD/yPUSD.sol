@@ -14,14 +14,7 @@ import "./yPUSDStorage.sol";
  * @notice Only Farm contract can mint/burn yPUSD
  *         - Grant MINTER_ROLE to Farm contract during deployment
  */
-contract yPUSD is
-    Initializable,
-    ERC20Upgradeable,
-    AccessControlUpgradeable,
-    PausableUpgradeable,
-    UUPSUpgradeable,
-    yPUSDStorage
-{
+contract yPUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable, yPUSDStorage {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -39,6 +32,9 @@ contract yPUSD is
         cap = _cap;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
+
+    // Note: Paused/Unpaused events are already defined in PausableUpgradeable
+    // Note: Upgraded event is already defined in UUPSUpgradeable
 
     /**
      * @dev Override grantRole function to ensure MINTER_ROLE can only be granted once
