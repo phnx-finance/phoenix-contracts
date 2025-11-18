@@ -6,22 +6,14 @@ import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "../../interfaces/IyPUSD.sol";
-import "./yPUSDStorage.sol";
+import {yPUSDStorage} from "./yPUSDStorage.sol";
 
 /**
  * @title Yield-PUSD is the revenue token of pusd
  * @notice Only Farm contract can mint/burn yPUSD
  *         - Grant MINTER_ROLE to Farm contract during deployment
  */
-contract yPUSD is
-    Initializable,
-    ERC20Upgradeable,
-    AccessControlUpgradeable,
-    PausableUpgradeable,
-    UUPSUpgradeable,
-    yPUSDStorage
-{
+contract yPUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, PausableUpgradeable, UUPSUpgradeable, yPUSDStorage {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -39,6 +31,9 @@ contract yPUSD is
         cap = _cap;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
+
+    // Note: Paused/Unpaused events are already defined in PausableUpgradeable
+    // Note: Upgraded event is already defined in UUPSUpgradeable
 
     /**
      * @dev Override grantRole function to ensure MINTER_ROLE can only be granted once
@@ -101,50 +96,6 @@ contract yPUSD is
         emit Burned(from, amount, msg.sender);
     }
 
-    /**
-     * @dev Override decimals function, set to 6 decimal places
-     * @return Token decimal places (6 digits, consistent with USDT/USDC)
-     */
-    function decimals() public view virtual override(ERC20Upgradeable, IyPUSD) returns (uint8) {
-        return 6;
-    }
-
-    /**
-     * @dev Override totalSupply function, consistent with IyPUSD interface
-     * @return Total supply of PUSD
-     */ 
-    function totalSupply() public view virtual override(ERC20Upgradeable, IyPUSD) returns (uint256) {
-        return super.totalSupply();
-    }
-
-    /**
-     * @dev Override balanceOf function, consistent with IyPUSD interface
-     * @return Balance of account
-     */
-    function balanceOf(address account) public view virtual override(ERC20Upgradeable, IyPUSD) returns (uint256) {
-        return super.balanceOf(account);
-    }
-
-    /**
-     * @dev Override transfer function, consistent with IyPUSD interface
-     * @return Success status
-     */
-    function transfer(address to, uint256 amount) public virtual override(ERC20Upgradeable, IyPUSD) returns (bool) {
-        return super.transfer(to, amount);
-    }
-
-    /**
-     * @dev Override transferFrom function, consistent with IyPUSD interface
-     * @return Success status
-     */
-    function transferFrom(address from, address to, uint256 amount) public virtual override(ERC20Upgradeable, IyPUSD) returns (bool) {
-        return super.transferFrom(from, to, amount);
-    }
-
-    function allowance(address owner, address spender) public view virtual override(ERC20Upgradeable, IyPUSD) returns (uint256) {
-        return super.allowance(owner, spender);
-    }
-
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
         // PausableUpgradeable will automatically trigger Paused(msg.sender) event
@@ -153,6 +104,14 @@ contract yPUSD is
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
         // PausableUpgradeable will automatically trigger Unpaused(msg.sender) event
+    }
+
+    /**
+     * @dev Override decimals function, set to 6 decimal places
+     * @return Token decimal places (6 digits, consistent with USDT/USDC)
+     */
+    function decimals() public view virtual override returns (uint8) {
+        return 6;
     }
 
     /**
