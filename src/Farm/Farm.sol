@@ -9,7 +9,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../interfaces/IPUSD.sol";
-import "../interfaces/IrPUSD.sol";
+import "../interfaces/IyPUSD.sol";
 import "../interfaces/IVault.sol";
 import {IFarm} from "../interfaces/IFarm.sol";
 import {FarmStorage} from "./FarmStorage.sol";
@@ -17,17 +17,17 @@ import {FarmStorage} from "./FarmStorage.sol";
 /**
  * @title FarmUpgradeable
  * @notice Core Farm contract of Phoenix DeFi system
- * @dev Mining contract specially designed for PUSD/rPUSD ecosystem
+ * @dev Mining contract specially designed for PUSD/yPUSD ecosystem
  *
  * Core design philosophy:
- * - Only PUSD ↔ rPUSD can be directly exchanged
- * - Other assets → PUSD → rPUSD unidirectional flow
- * - rPUSD yield handled within its own contract; Farm no longer queries dynamic APY for post-expiry stakes
+ * - Only PUSD ↔ yPUSD can be directly exchanged
+ * - Other assets → PUSD → yPUSD unidirectional flow
+ * - yPUSD yield handled within its own contract; Farm no longer queries dynamic APY for post-expiry stakes
  * - Multi-asset support but unified management
  *
  * Main functions:
  * 1. Multi-asset deposits (USDT/USDC → PUSD)
- * 2. PUSD ↔ rPUSD exchange
+ * 2. PUSD ↔ yPUSD exchange
  * 3. Staking mining system
  * 4. Automatic yield reinvestment
  * 5. Flexible withdrawal mechanism
@@ -53,13 +53,13 @@ contract FarmUpgradeable is
      * @notice Initialize Farm contract
      * @param admin Administrator address
      * @param _pusdToken PUSD token contract address
-     * @param _rpusdToken rPUSD token contract address
+     * @param _ypusdToken yPUSD token contract address
      * @param _vault Vault contract address
      */
-    function initialize(address admin, address _pusdToken, address _rpusdToken, address _vault) public initializer {
+    function initialize(address admin, address _pusdToken, address _ypusdToken, address _vault) public initializer {
         require(admin != address(0), "Invalid admin address");
         require(_pusdToken != address(0), "Invalid PUSD address");
-        require(_rpusdToken != address(0), "Invalid rPUSD address");
+        require(_ypusdToken != address(0), "Invalid yPUSD address");
         require(_vault != address(0), "Invalid vault address");
 
         __AccessControl_init();
@@ -72,7 +72,7 @@ contract FarmUpgradeable is
         _grantRole(OPERATOR_ROLE, admin); // Grant operations management permissions (APY/fees/configuration)
 
         pusdToken = IPUSD(_pusdToken);
-        rpusdToken = IrPUSD(_rpusdToken);
+        ypusdToken = IyPUSD(_ypusdToken);
         vault = IVault(_vault);
 
         // Initialize staking mining system
@@ -184,20 +184,20 @@ contract FarmUpgradeable is
     }
 
     /**
-     * @notice Exchange PUSD to rPUSD
-     * @dev 1:1 exchange, rPUSD automatically generates 8% APY yield
+     * @notice Exchange PUSD to yPUSD
+     * @dev 1:1 exchange, yPUSD automatically generates 8% APY yield
      * Farm contract directly handles exchange logic to avoid complex inter-contract calls
      * @param pusdAmount PUSD amount
      */
-    function exchangePUSDToRPUSD(uint256 pusdAmount) external nonReentrant whenNotPaused {
+    function exchangePUSDToYPUSD(uint256 pusdAmount) external nonReentrant whenNotPaused {
         require(pusdAmount > 0, "Amount must be greater than 0");
 
         // Check user PUSD balance
         require(pusdToken.balanceOf(msg.sender) >= pusdAmount, "Insufficient PUSD balance");
 
-        // Farm directly handles exchange: 1. Burn PUSD, 2. Mint rPUSD
+        // Farm directly handles exchange: 1. Burn PUSD, 2. Mint yPUSD
         pusdToken.burn(msg.sender, pusdAmount);
-        rpusdToken.mint(msg.sender, pusdAmount); // 1:1 exchange
+        ypusdToken.mint(msg.sender, pusdAmount); // 1:1 exchange
 
         // Update user statistics
         UserAssetInfo storage userInfo = userAssets[msg.sender];
@@ -210,29 +210,29 @@ contract FarmUpgradeable is
     }
 
     /**
-     * @notice Exchange rPUSD to PUSD
-     * @dev Exchange rPUSD including yield back to PUSD
+     * @notice Exchange yPUSD to PUSD
+     * @dev Exchange yPUSD including yield back to PUSD
      * Farm contract directly handles exchange logic ensuring separation of responsibilities
-     * @param rpusdAmount rPUSD amount
+     * @param ypusdAmount yPUSD amount
      */
-    function exchangeRPUSDToPUSD(uint256 rpusdAmount) external nonReentrant whenNotPaused {
-        require(rpusdAmount > 0, "Amount must be greater than 0");
+    function exchangeYPUSDToPUSD(uint256 ypusdAmount) external nonReentrant whenNotPaused {
+        require(ypusdAmount > 0, "Amount must be greater than 0");
 
-        // Check user rPUSD balance
-        require(rpusdToken.balanceOf(msg.sender) >= rpusdAmount, "Insufficient rPUSD balance");
+        // Check user yPUSD balance
+        require(ypusdToken.balanceOf(msg.sender) >= ypusdAmount, "Insufficient yPUSD balance");
 
-        // Farm directly handles exchange: 1. Burn rPUSD, 2. Mint PUSD
-        rpusdToken.burn(msg.sender, rpusdAmount);
-        pusdToken.mint(msg.sender, rpusdAmount); // 1:1 exchange
+        // Farm directly handles exchange: 1. Burn yPUSD, 2. Mint PUSD
+        ypusdToken.burn(msg.sender, ypusdAmount);
+        pusdToken.mint(msg.sender, ypusdAmount); // 1:1 exchange
 
         // Update user statistics
         UserAssetInfo storage userInfo = userAssets[msg.sender];
         userInfo.lastActionTime = block.timestamp;
 
         // Update transaction volume statistics
-        totalVolumeUSD += rpusdAmount;
+        totalVolumeUSD += ypusdAmount;
 
-        emit TokenExchange(msg.sender, rpusdAmount, rpusdAmount, false);
+        emit TokenExchange(msg.sender, ypusdAmount, ypusdAmount, false);
     }
 
     /**
@@ -356,7 +356,7 @@ contract FarmUpgradeable is
                 emit StakeRenewal(msg.sender, stakeId, stakeRecord.lockPeriod, reward, stakeRecord.amount, true);
             } else {
                 // Traditional mode: distribute rewards to user
-                rpusdToken.mint(msg.sender, reward);
+                ypusdToken.mint(msg.sender, reward);
                 emit StakeRewardsClaimed(msg.sender, stakeId, reward);
             }
         }
@@ -395,8 +395,8 @@ contract FarmUpgradeable is
         // Calculate and distribute rewards for this stake
         uint256 reward = _calculateStakeReward(stakeRecord);
         if (reward > 0) {
-            // Directly mint rPUSD as rewards to user
-            rpusdToken.mint(msg.sender, reward);
+            // Directly mint yPUSD as rewards to user
+            ypusdToken.mint(msg.sender, reward);
             emit StakeRewardsClaimed(msg.sender, stakeId, reward);
         }
 
@@ -444,8 +444,8 @@ contract FarmUpgradeable is
         // Update last claim time
         stakeRecord.lastClaimTime = block.timestamp;
 
-        // Directly mint rPUSD as rewards to user
-        rpusdToken.mint(msg.sender, pendingReward);
+        // Directly mint yPUSD as rewards to user
+        ypusdToken.mint(msg.sender, pendingReward);
 
         emit StakeRewardsClaimed(msg.sender, stakeId, pendingReward);
     }
@@ -477,8 +477,8 @@ contract FarmUpgradeable is
 
         require(totalReward > 0, "No rewards to claim");
 
-        // Directly mint rPUSD as rewards to user
-        rpusdToken.mint(msg.sender, totalReward);
+        // Directly mint yPUSD as rewards to user
+        ypusdToken.mint(msg.sender, totalReward);
     }
 
     /**
@@ -702,7 +702,7 @@ contract FarmUpgradeable is
      * @notice Get complete user information (DAO pool mode)
      * @param user User address
      * @return pusdBalance User PUSD balance
-     * @return rpusdBalance User rPUSD balance
+     * @return ypusdBalance User yPUSD balance
      * @return totalDeposited Total deposited amount
      * @return totalStakedAmount Total staked amount
      * @return totalStakeRewards Total pending rewards
@@ -713,7 +713,7 @@ contract FarmUpgradeable is
         view
         returns (
             uint256 pusdBalance,
-            uint256 rpusdBalance,
+            uint256 ypusdBalance,
             uint256 totalDeposited,
             uint256 totalStakedAmount,
             uint256 totalStakeRewards,
@@ -738,7 +738,7 @@ contract FarmUpgradeable is
 
         return (
             pusdToken.balanceOf(user), // Query real balance from PUSD contract
-            rpusdToken.balanceOf(user), // Query real balance from rPUSD contract
+            ypusdToken.balanceOf(user), // Query real balance from yPUSD contract
             info.totalDeposited,
             _totalStakedAmount,
             _totalStakeRewards,
@@ -859,7 +859,7 @@ contract FarmUpgradeable is
     //  * @return tvlUtilization TVL utilization (PUSD supply/TVL ratio)
     //  * @return avgDepositPerUser Average deposit per user
     //  * @return pusdSupply PUSD total supply
-    //  * @return rpusdSupply rPUSD total supply
+    //  * @return ypusdSupply yPUSD total supply
     function getSystemHealth() external view returns (uint256 totalTVL, uint256 totalPUSDMarketCap) {
         // Get basic data
         // Get Vault's total TVL

@@ -39,5 +39,6 @@ abstract contract PUSDOracleStorage is IPUSDOracle {
     uint256 public constant DEFAULT_RECOVERY_THRESHOLD = 200; // 2%
     uint256 public constant MAX_DEPEG_COUNT = 2; // Maximum depeg count
 
-    uint256[40] private __gap;
+    // PlaceHolder
+    uint256[50] private __gap;
 }

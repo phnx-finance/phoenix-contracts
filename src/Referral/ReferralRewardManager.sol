@@ -6,7 +6,7 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "../interfaces/IrPUSD.sol";
+import "../interfaces/IyPUSD.sol";
 import "./ReferralRewardManagerStorage.sol";
 
 /**
@@ -38,11 +38,11 @@ contract ReferralRewardManager is
     /**
      * @notice Initialize the contract
      * @param admin Admin address
-     * @param _rpusdToken rPUSD token address
+     * @param _ypusdToken yPUSD token address
      */
-    function initialize(address admin, address _rpusdToken) public initializer {
+    function initialize(address admin, address _ypusdToken) public initializer {
         require(admin != address(0), "Invalid admin address");
-        require(_rpusdToken != address(0), "Invalid rPUSD address");
+        require(_ypusdToken != address(0), "Invalid yPUSD address");
 
         __AccessControl_init();
         __ReentrancyGuard_init();
@@ -56,11 +56,11 @@ contract ReferralRewardManager is
         _grantRole(FUND_MANAGER_ROLE, admin);
 
         // Set contract addresses
-        rpusdToken = IrPUSD(_rpusdToken);
+        ypusdToken = IyPUSD(_ypusdToken);
 
         // Initialize configuration
-        minClaimAmount = 1 * 10 ** 6; // 1 rPUSD
-        maxRewardPerUser = 10000 * 10 ** 6; // 10000 rPUSD
+        minClaimAmount = 1 * 10 ** 6; // 1 yPUSD
+        maxRewardPerUser = 10000 * 10 ** 6; // 10000 yPUSD
         maxReferralsPerUser = 1000; // Max 1000 referrals per user
     }
 
@@ -201,14 +201,14 @@ contract ReferralRewardManager is
 
     /**
      * @notice User claims referral rewards
-     * @dev Transfer rPUSD from contract itself to user (not minting)
+     * @dev Transfer yPUSD from contract itself to user (not minting)
      */
     function claimReward() external nonReentrant whenNotPaused {
         uint256 pending = pendingRewards[msg.sender];
         require(pending >= minClaimAmount, "Below minimum claim amount");
 
         // Check contract balance
-        uint256 contractBalance = rpusdToken.balanceOf(address(this));
+        uint256 contractBalance = ypusdToken.balanceOf(address(this));
         require(contractBalance >= pending, "Insufficient balance in contract. Please contact admin.");
 
         // Clear pending rewards
@@ -220,7 +220,7 @@ contract ReferralRewardManager is
         totalClaimedRewardsGlobal += pending;
 
         // Transfer from this contract
-        require(rpusdToken.transfer(msg.sender, pending), "rPUSD transfer failed.");
+        require(ypusdToken.transfer(msg.sender, pending), "yPUSD transfer failed.");
 
         emit RewardClaimed(msg.sender, pending);
     }
@@ -235,8 +235,8 @@ contract ReferralRewardManager is
     function fundRewardPool(uint256 amount) external {
         require(amount > 0, "Invalid amount");
 
-        // Anyone can transfer rPUSD to this contract
-        require(rpusdToken.transferFrom(msg.sender, address(this), amount), "rPUSD transfer failed");
+        // Anyone can transfer yPUSD to this contract
+        require(ypusdToken.transferFrom(msg.sender, address(this), amount), "yPUSD transfer failed");
 
         emit RewardPoolFunded(msg.sender, amount);
     }
@@ -248,10 +248,10 @@ contract ReferralRewardManager is
     function withdrawFunds(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(amount > 0, "Invalid amount");
 
-        uint256 contractBalance = rpusdToken.balanceOf(address(this));
+        uint256 contractBalance = ypusdToken.balanceOf(address(this));
         require(contractBalance >= amount, "Insufficient balance");
 
-        require(rpusdToken.transfer(msg.sender, amount), "rPUSD transfer failed");
+        require(ypusdToken.transfer(msg.sender, amount), "yPUSD transfer failed");
     }
 
     /* ========== Configuration Management ========== */
@@ -307,7 +307,7 @@ contract ReferralRewardManager is
     /**
      * @notice Get reward pool status
      * @return poolAddress Contract address (reward pool is the contract itself)
-     * @return balance Contract rPUSD balance
+     * @return balance Contract yPUSD balance
      * @return totalPending Total pending rewards in system
      * @return totalClaimed Total claimed rewards in system
      */
@@ -316,7 +316,7 @@ contract ReferralRewardManager is
         view
         returns (address poolAddress, uint256 balance, uint256 totalPending, uint256 totalClaimed)
     {
-        return (address(this), rpusdToken.balanceOf(address(this)), totalPendingRewards, totalClaimedRewardsGlobal);
+        return (address(this), ypusdToken.balanceOf(address(this)), totalPendingRewards, totalClaimedRewardsGlobal);
     }
 
     /**

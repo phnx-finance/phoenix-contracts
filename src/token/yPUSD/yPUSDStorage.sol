@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-contract PUSDStorage {
+contract yPUSDStorage {
+    /* ========== Role Definitions ========== */
     uint256 public cap;
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 

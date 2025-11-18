@@ -93,9 +93,9 @@ interface IFarm {
 
     function withdrawAsset(address asset, uint256 pusdAmount) external;
 
-    function exchangePUSDToRPUSD(uint256 pusdAmount) external;
+    function exchangePUSDToYPUSD(uint256 pusdAmount) external;
 
-    function exchangeRPUSDToPUSD(uint256 rpusdAmount) external;
+    function exchangeYPUSDToPUSD(uint256 ypusdAmount) external;
 
     function stakePUSD(uint256 amount, uint256 lockPeriod) external returns (uint256 stakeId);
 
@@ -124,7 +124,7 @@ interface IFarm {
         view
         returns (
             uint256 pusdBalance,
-            uint256 rpusdBalance,
+            uint256 ypusdBalance,
             uint256 totalDeposited,
             uint256 totalStakedAmount,
             uint256 totalStakeRewards,

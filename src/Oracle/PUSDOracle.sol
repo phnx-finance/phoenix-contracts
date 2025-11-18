@@ -99,7 +99,7 @@ contract PUSDOracleUpgradeable is Initializable, AccessControlUpgradeable, Pausa
         _checkDepegInternal();
 
         emit TokenPUSDPriceUpdated(token, pusdPrice, 0);
-        emit TokenAdded(token, usdFeed);
+        emit TokenAdded(token, usdFeed, pusdOracle);
     }
 
     /* ========== Price updates and calculations ========== */

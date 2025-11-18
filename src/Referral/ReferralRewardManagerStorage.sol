@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "../interfaces/IrPUSD.sol";
+import "../interfaces/IyPUSD.sol";
 
 contract ReferralRewardManagerStorage {
     /* ========== Events ========== */
@@ -23,7 +23,7 @@ contract ReferralRewardManagerStorage {
 
     /* ========== State Variables ========== */
 
-    IrPUSD public rpusdToken; // rPUSD token contract
+    IyPUSD public ypusdToken; // yPUSD token contract
 
     // User reward data
     mapping(address => uint256) public pendingRewards; // Pending rewards

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../interfaces/IPUSD.sol";
-import "../interfaces/IrPUSD.sol";
+import "../interfaces/IyPUSD.sol";
 import "../interfaces/IVault.sol";
 import {IFarm} from "../interfaces/IFarm.sol";
 
@@ -10,7 +10,7 @@ abstract contract FarmStorage is IFarm {
     /* ========== Contract Dependencies ========== */
 
     IPUSD public pusdToken; // PUSD stablecoin contract
-    IrPUSD public rpusdToken; // rPUSD yield token contract
+    IyPUSD public ypusdToken; // yPUSD yield token contract
     IVault public vault; // Fund vault contract
 
     /* ========== Permission Roles ========== */
@@ -63,6 +63,6 @@ abstract contract FarmStorage is IFarm {
     /* ========== Pool TVL Tracking ========== */
     mapping(uint256 => uint256) public poolTVL; // Total locked value per lock period
 
-    // Reserved upgrade space
-    uint256[39] private __gap;
+    // PlaceHolder
+    uint256[40] private __gap;
 }

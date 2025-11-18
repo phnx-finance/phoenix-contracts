@@ -14,7 +14,7 @@ interface IPUSDOracle {
 
     /* ========== Events ========== */
 
-    event TokenAdded(address indexed token, address usdFeed);
+    event TokenAdded(address indexed token, address usdFeed, address pusdOracle);
     event DebugPriceCheck(int256 price, uint256 updatedAt, uint256 currentTime, uint256 maxAge);
     event TokenPUSDPriceUpdated(address indexed token, uint256 newPrice, uint256 oldPrice);
     event PUSDUSDPriceUpdated(uint256 pusdUsdPrice, uint256 timestamp);
