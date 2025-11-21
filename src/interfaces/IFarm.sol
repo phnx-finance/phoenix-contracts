@@ -78,6 +78,8 @@ interface IFarm {
     event BridgePUSDInitiated(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 totalAmount, uint256 netAmount, uint256 fee);
     event BridgePUSDFinalized(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 amount, uint256 fee, uint256 nonce);
     event BridgeMessengerUpdated(address indexed oldMessenger, address indexed newMessenger);
+    event BridgeFeeRateUpdated(uint256 newFeeRate);
+    event BridgeChainSupportUpdated(uint256[] chainIds, bool[] isSupported);
 
     /* ========== Core External Functions ========== */
 
