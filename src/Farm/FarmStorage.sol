@@ -16,11 +16,13 @@ abstract contract FarmStorage is IFarm {
     IyPUSD public ypusdToken; // yPUSD yield token contract
     IVault public vault; // Fund vault contract
     address public _nftManager; // NFT Manager contract address
+    address public farmLend; // FarmLend contract address
 
     /* ========== Permission Roles ========== */
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE"); // Operations admin role (APY/fees/configuration)
+    bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE"); // Bridge management role
 
     mapping(address => UserAssetInfo) public userAssets;
 
@@ -65,10 +67,9 @@ abstract contract FarmStorage is IFarm {
     /* ========== Pool TVL Tracking ========== */
     mapping(uint256 => uint256) public poolTVL; // Total locked value per lock period
 
-    /* ========== Bridge related ========== */ 
-    address public bridgeMessenger; // L1StandardBridge or L2StandardBridge address
-    mapping(bytes32 => bool) public processedBridgeMessages; // Prevent replay attacks
-
+    /* ========== Bridge related ========== */
+    address public bridgeMessenger;
+    mapping(uint256 => bool) public isSupportedBridgeChain; // Supported bridge destination chains
 
     // PlaceHolder
     uint256[50] private __gap;

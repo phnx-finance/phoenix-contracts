@@ -72,11 +72,14 @@ interface IFarm {
     event LockPeriodAdded(uint256 indexed lockPeriod, uint16 multiplier);
     event LockPeriodRemoved(uint256 indexed lockPeriod);
     event NFTManagerUpdated(address indexed nftManager);
+    event FarmLendUpdated(address indexed farmLend);
 
     // Bridge events
     event BridgePUSDInitiated(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 totalAmount, uint256 netAmount, uint256 fee);
     event BridgePUSDFinalized(uint256 indexed sourceChainId, uint256 indexed destChainId, address indexed from, address to, uint256 amount, uint256 fee, uint256 nonce);
     event BridgeMessengerUpdated(address indexed oldMessenger, address indexed newMessenger);
+    event BridgeFeeRateUpdated(uint256 newFeeRate);
+    event BridgeChainSupportUpdated(uint256[] chainIds, bool[] isSupported);
 
     /* ========== Core External Functions ========== */
 
@@ -119,6 +122,8 @@ interface IFarm {
     function updateSystemConfig(uint256 configType, uint256 newValue) external;
 
     function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate, uint256 _bridgeFeeRate) external;
+
+    function updateByFarmLend(uint256 tokenId, uint256 pusdAmount) external;
 
     function pause() external;
 

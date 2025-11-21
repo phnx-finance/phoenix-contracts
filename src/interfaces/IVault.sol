@@ -29,4 +29,8 @@ interface IVault {
     function heartbeat() external;
 
     function withdrawPUSDTo(address user, uint256 amount) external;
+
+    function releaseNFT(uint256 tokenId, address to) external;
+
+    function withdrawNFT(uint256 tokenId, address to) external;
 }

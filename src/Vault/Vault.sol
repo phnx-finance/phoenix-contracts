@@ -183,7 +183,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function depositFor(address user, address assetToken, uint256 amount) external nonReentrant whenNotPaused {
         require(block.timestamp - lastHealthCheck < HEALTH_CHECK_TIMEOUT, "Vault: Oracle system offline");
-        require(msg.sender == farm, "Vault: Caller is not the farm");
+        require(msg.sender == farm || msg.sender == farmLend, "Vault: Caller is not the farm or farmLend");
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
 
         // Check allowance amount, provide friendly error message
@@ -393,6 +393,17 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
         IFarm.StakeRecord memory r = nftManager.getStakeRecord(tokenId);
         require(r.active, "NFTManager: stake already withdrawn");
         require(block.timestamp >= r.startTime + r.lockPeriod + MAX_DELAY_PERIOD, "Vault: stake is still locked");
+
+        nftManager.safeTransferFrom(address(this), to, tokenId);
+
+        emit NFTWithdrawn(to, tokenId);
+    }
+
+    function releaseNFT(uint256 tokenId, address to) external {
+        require(msg.sender == farmLend, "Not From FarmLend");
+        NFTManager nftManager = NFTManager(_nftManager);
+        require(nftManager.exists(tokenId));
+        require(nftManager.ownerOf(tokenId) == address(this));
 
         nftManager.safeTransferFrom(address(this), to, tokenId);
 

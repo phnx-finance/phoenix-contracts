@@ -63,6 +63,7 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         __UUPSUpgradeable_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(BRIDGE_ROLE, admin); // Grant bridge management permissions
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(OPERATOR_ROLE, admin); // Grant operations management permissions (APY/fees/configuration)
 
@@ -896,30 +897,41 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         emit LockPeriodRemoved(lockPeriod);
     }
 
+    function updateByFarmLend(uint256 tokenId, uint256 pusdAmount) public {
+        require(msg.sender == farmLend, "Unauthorized caller");
+        NFTManager nftManager = NFTManager(_nftManager);
+        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
+        require(record.amount >= pusdAmount, "Insufficient stake amount");
+        uint256 reward = _calculateStakeReward(record);
+        // Update last claim time
+        record.lastClaimTime = block.timestamp;
+        // Update pending reward
+        record.pendingReward += reward;
+        // Update stake amount
+        record.amount = pusdAmount;
+        nftManager.updateStakeRecord(tokenId, record);
+    }
+
     /* ========== PUSD Bridge Functions ========== */
 
     /**
-    * @notice Initiate PUSD bridge to another chain
-    * @dev Burns PUSD on source chain and sends message via MessageManager
-    * @param sourceChainId Source chain ID (must match current chain)
-    * @param destChainId Destination chain ID
-    * @param to Recipient address on destination chain
-    * @param value Amount of PUSD to bridge
-    * @return success Whether initiation succeeded
-    */
-    function bridgeInitiatePUSD(
-        uint256 sourceChainId,
-        uint256 destChainId,
-        address to,
-        uint256 value
-    ) external nonReentrant whenNotPaused returns (bool success) {
+     * @notice Initiate PUSD bridge to another chain
+     * @dev Burns PUSD on source chain and sends message via MessageManager
+     * @param sourceChainId Source chain ID (must match current chain)
+     * @param destChainId Destination chain ID
+     * @param to Recipient address on destination chain
+     * @param value Amount of PUSD to bridge
+     * @return success Whether initiation succeeded
+     */
+    function bridgeInitiatePUSD(uint256 sourceChainId, uint256 destChainId, address to, uint256 value) external nonReentrant whenNotPaused returns (bool success) {
         require(sourceChainId == block.chainid, "Invalid source chain ID");
         require(bridgeMessenger != address(0), "Bridge messenger not set");
         require(to != address(0), "Invalid recipient");
         require(value > 0, "Amount must be greater than 0");
-        
+
         // Check user PUSD balance
         require(pusdToken.balanceOf(msg.sender) >= value, "Insufficient PUSD balance");
+        require(isSupportedBridgeChain[destChainId], "Destination chain not supported");
 
         // Calculate bridge fee (using deposit fee rate)
         uint256 fee = (value * bridgeFeeRate) / 10000;
@@ -930,111 +942,48 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
 
         // Send cross-chain message via MessageManager
         // MessageManager will generate messageNumber internally
-        IMessageManager(bridgeMessenger).sendMessage(
-            sourceChainId,
-            destChainId,
-            address(pusdToken), 
-            address(pusdToken), 
-            msg.sender,         
-            to,               
-            netAmount,          
-            fee                 
-        );
+        IMessageManager(bridgeMessenger).sendMessage(sourceChainId, destChainId, address(pusdToken), address(pusdToken), msg.sender, to, netAmount, fee);
 
-        emit BridgePUSDInitiated(sourceChainId,destChainId,msg.sender,to,value,netAmount,fee);
+        emit BridgePUSDInitiated(sourceChainId, destChainId, msg.sender, to, value, netAmount, fee);
 
         return true;
     }
 
     /**
-    * @notice Finalize PUSD bridge from another chain
-    * @dev Mints PUSD to recipient after cross-chain message is verified by Relayer
-    *      This function is called by OPERATOR_ROLE (Relayer) after verifying MessageSent event on source chain
-    * @param sourceChainId Source chain ID (e.g., 56 for BNB Chain, 10 for Optimism)
-    * @param destChainId Destination chain ID (must match current chain)
-    * @param from Original sender address on source chain
-    * @param to Recipient address on destination chain
-    * @param sourceTokenAddress Source PUSD token address on source chain
-    * @param destTokenAddress Destination PUSD token address (this chain)
-    * @param amount Amount to mint (net after fees)
-    * @param _fee Bridge fee amount
-    * @param _nonce Message nonce from MessageManager on source chain
-    * @return success Whether finalization succeeded
-    */
-    function bridgeFinalizedPUSD(
-        uint256 sourceChainId,
-        uint256 destChainId,
-        address from,
-        address to,
-        address sourceTokenAddress,
-        address destTokenAddress,
-        uint256 amount,
-        uint256 _fee,
-        uint256 _nonce
-    ) external nonReentrant whenNotPaused onlyRole(OPERATOR_ROLE) returns (bool success) {
+     * @notice Finalize PUSD bridge from another chain
+     * @dev Mints PUSD to recipient after cross-chain message is verified by Relayer
+     *      This function is called by OPERATOR_ROLE (Relayer) after verifying MessageSent event on source chain
+     * @param sourceChainId Source chain ID (e.g., 56 for BNB Chain, 10 for Optimism)
+     * @param destChainId Destination chain ID (must match current chain)
+     * @param from Original sender address on source chain
+     * @param to Recipient address on destination chain
+     * @param amount Amount to mint (net after fees)
+     * @param _fee Bridge fee amount
+     * @param _nonce Message nonce from MessageManager on source chain
+     * @return success Whether finalization succeeded
+     */
+    function bridgeFinalizedPUSD(uint256 sourceChainId, uint256 destChainId, address from, address to, uint256 amount, uint256 _fee, uint256 _nonce) external nonReentrant whenNotPaused onlyRole(BRIDGE_ROLE) returns (bool success) {
         // Verify destination chain ID matches current chain
         require(destChainId == block.chainid, "Invalid destination chain ID");
+        require(isSupportedBridgeChain[sourceChainId], "Source chain not supported");
         require(to != address(0), "Invalid recipient");
         require(amount > 0, "Amount must be greater than 0");
-        require(bridgeMessenger != address(0), "Bridge messenger not set");
-        
-        // Verify token addresses (PUSD on both chains)
-        require(destTokenAddress == address(pusdToken), "Invalid dest token");
-
-        // Generate message hash to check if already processed
-        // Must match the hash format used in MessageManager
-        bytes32 messageHash = keccak256(
-            abi.encode(
-                sourceChainId,
-                destChainId,
-                sourceTokenAddress,
-                destTokenAddress,
-                from,
-                to,
-                _fee,
-                amount,
-                _nonce
-            )
-        );
-        
-        require(!processedBridgeMessages[messageHash], "Message already processed");
-
-        // Mark message as processed (prevent replay attacks)
-        processedBridgeMessages[messageHash] = true;
 
         // Mint PUSD to recipient
         pusdToken.mint(to, amount);
 
         // Claim message via MessageManager to mark as completed
-        IMessageManager(bridgeMessenger).claimMessage(
-            sourceChainId,
-            destChainId,
-            sourceTokenAddress,
-            destTokenAddress,
-            from,
-            to,
-            amount,
-            _fee,
-            _nonce
-        );
+        IMessageManager(bridgeMessenger).claimMessage(sourceChainId, destChainId, address(pusdToken), address(pusdToken), from, to, amount, _fee, _nonce);
 
-        emit BridgePUSDFinalized(
-            sourceChainId,
-            destChainId,
-            from,
-            to,
-            amount,
-            _fee,
-            _nonce
-        );
+        emit BridgePUSDFinalized(sourceChainId, destChainId, from, to, amount, _fee, _nonce);
 
         return true;
     }
 
     /**
-    * @notice Set bridge messenger address (MessageManager)
-    * @param messenger MessageManager contract address on current chain
-    */
+     * @notice Set bridge messenger address (MessageManager)
+     * @param messenger MessageManager contract address on current chain
+     */
     function setBridgeMessenger(address messenger) external onlyRole(OPERATOR_ROLE) {
         require(messenger != address(0), "Invalid messenger address");
         address oldMessenger = bridgeMessenger;
@@ -1042,40 +991,12 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         emit BridgeMessengerUpdated(oldMessenger, messenger);
     }
 
-    /**
-    * @notice Query if bridge message has been processed
-    * @param sourceChainId Source chain ID
-    * @param destChainId Destination chain ID
-    * @param from Sender address
-    * @param to Recipient address
-    * @param amount Transfer amount
-    * @param fee Bridge fee
-    * @param nonce Message nonce
-    * @return processed Whether message has been processed
-    */
-    function isBridgeMessageProcessed(
-        uint256 sourceChainId,
-        uint256 destChainId,
-        address from,
-        address to,
-        uint256 amount,
-        uint256 fee,
-        uint256 nonce
-    ) external view returns (bool processed) {
-        bytes32 messageHash = keccak256(
-            abi.encode(
-                sourceChainId,
-                destChainId,
-                address(pusdToken),
-                address(pusdToken),
-                from,
-                to,
-                fee,
-                amount,
-                nonce
-            )
-        );
-        return processedBridgeMessages[messageHash];
+    function setSupportedBridgeChain(uint256[] memory chainId, bool[] memory isSupported) external onlyRole(OPERATOR_ROLE) {
+        require(chainId.length == isSupported.length, "Array length mismatch");
+        for (uint256 i = 0; i < chainId.length; i++) {
+            isSupportedBridgeChain[chainId[i]] = isSupported[i];
+        }
+        emit BridgeChainSupportUpdated(chainId, isSupported);
     }
 
     /* ========== System Configuration Management ========== */
@@ -1114,16 +1035,16 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
     /* ========== Admin Functions ========== */
 
     /**
-    * @notice Set fee rates
-    * @param _depositFeeRate Deposit fee rate (basis points, 100 = 1%)
-    * @param _withdrawFeeRate Withdrawal fee rate (basis points, 100 = 1%)
-    * @param _bridgeFeeRate Bridge fee rate (basis points, 100 = 1%)
-    */
+     * @notice Set fee rates
+     * @param _depositFeeRate Deposit fee rate (basis points, 100 = 1%)
+     * @param _withdrawFeeRate Withdrawal fee rate (basis points, 100 = 1%)
+     * @param _bridgeFeeRate Bridge fee rate (basis points, 100 = 1%)
+     */
     function setFeeRates(uint256 _depositFeeRate, uint256 _withdrawFeeRate, uint256 _bridgeFeeRate) external onlyRole(OPERATOR_ROLE) {
         require(_depositFeeRate <= type(uint16).max, "Deposit fee exceeds uint16 max");
         require(_withdrawFeeRate <= type(uint16).max, "Withdraw fee exceeds uint16 max");
         require(_bridgeFeeRate <= type(uint16).max, "Bridge fee exceeds uint16 max");
-        
+
         depositFeeRate = uint16(_depositFeeRate);
         withdrawFeeRate = uint16(_withdrawFeeRate);
         bridgeFeeRate = uint16(_bridgeFeeRate);
@@ -1131,10 +1052,22 @@ contract FarmUpgradeable is Initializable, AccessControlUpgradeable, ReentrancyG
         emit FeeRatesUpdated(_depositFeeRate, _withdrawFeeRate, _bridgeFeeRate);
     }
 
+    function setBridgeFeeRate(uint256 _bridgeFeeRate) external onlyRole(OPERATOR_ROLE) {
+        require(_bridgeFeeRate <= type(uint16).max, "Bridge fee exceeds uint16 max");
+        bridgeFeeRate = uint16(_bridgeFeeRate);
+        emit BridgeFeeRateUpdated(_bridgeFeeRate);
+    }
+
     function setNFTManager(address nftManager_) external onlyRole(OPERATOR_ROLE) {
         require(nftManager_ != address(0), "Invalid NFT manager address");
         _nftManager = nftManager_;
         emit NFTManagerUpdated(nftManager_);
+    }
+
+    function setFarmLend(address farmLend_) external onlyRole(OPERATOR_ROLE) {
+        require(farmLend_ != address(0), "Invalid FarmLend address");
+        farmLend = farmLend_;
+        emit FarmLendUpdated(farmLend_);
     }
 
     /**
