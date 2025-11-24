@@ -195,7 +195,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         return interest + interestDelta;
     }
 
-    /// @notice View current accrued penalty (including from lastPenaltyAccrual to now)
+    /// @notice View current accrued penalty (including from lastPenaltyAccrualTime to now)
     function _currentPenaltyView(Loan storage loan) internal view returns (uint256) {
         if (!loan.active) return 0;
 
