@@ -75,7 +75,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(newLiquidationRatio >= 10000, "FarmLend: liquidationRatio < 100%");
         require(newTargetRatio >= 10000, "FarmLend: targetRatio < 100%");
         require(newLiquidationRatio < newTargetRatio, "FarmLend: liquidation < target");
-        
+
         uint16 oldLiq = liquidationRatio;
         uint16 oldTar = targetRatio;
 
@@ -86,19 +86,14 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         emit TargetRatioUpdated(oldTar, newTargetRatio);
     }
 
-    /// @notice Update interest ratio in basis points (e.g. 100 = 1%)
-    function setInterestRatio(uint256 _interestRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        interestRatio = _interestRatio;
-    }
-
     /// @notice Update penalty ratio in basis points (e.g. 100 = 1%)
     function setPenaltyRatio(uint256 _penaltyRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
         penaltyRatio = _penaltyRatio;
     }
 
     /// @notice Update loan duration in seconds
-    function setLoanDuration(uint256 _loanDuration) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        loanDuration = _loanDuration;
+    function setLoanDurationInterestRatios(uint256 loanDuration, uint256 _loanDurationInterestRatios) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        loanDurationInterestRatios[loanDuration] = _loanDurationInterestRatios;
     }
 
     /// @notice Update loan grace period in seconds
@@ -158,8 +153,28 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         total = principal + interest + penalty;
     }
 
+    function getHealthFactor(uint256 tokenId) external view returns (uint256 healthFactor18) {
+        Loan storage loan = loans[tokenId];
+        if (!loan.active) return type(uint256).max;
+
+        // 1. Fetch oracle price
+        //    tokenPrice = PUSD per 1 token (1e18 precision)
+        (uint256 tokenPrice, uint256 lastTs) = pusdOracle.getTokenPUSDPrice(loan.debtToken);
+        require(tokenPrice > 0 && lastTs != 0, "FarmLend: invalid debt token price");
+        require(block.timestamp - lastTs <= MAX_PRICE_AGE, "FarmLend: stale debt token price");
+
+        // 2. Compute collateral in debt token units (1e18)
+        uint256 collateralPUSD_18 = loan.remainingCollateralAmount * 1e12;
+        uint256 collateralTokens_18 = (collateralPUSD_18 * 1e18) / tokenPrice;
+        uint256 decimal = IERC20Metadata(loan.debtToken).decimals();
+        uint256 borrowedAmount_e18 = loan.borrowedAmount * (10 ** (18 - decimal));
+
+        // 3. healthFactor18 = collateralTokens_18 * liquidationRatio / (totalDebt * 10000)
+        healthFactor18 = (collateralTokens_18 * 10000 * 1e18) / (borrowedAmount_e18 * liquidationRatio);
+    }
+
     /// @notice View current accrued interest (including from lastAccrual to now)
-    function _currentInterestView(Loan storage loan) internal view returns (uint256){
+    function _currentInterestView(Loan storage loan) internal view returns (uint256) {
         if (!loan.active) return 0;
 
         uint256 interest = loan.accruedInterest;
@@ -171,6 +186,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         if (block.timestamp <= from) {
             return interest;
         }
+
+        uint256 interestRatio = loanDurationInterestRatios[loan.loanDuration];
 
         uint256 timeElapsed = block.timestamp - from;
         uint256 interestDelta = (loan.borrowedAmount * interestRatio * timeElapsed) / 1e18;
@@ -203,12 +220,10 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         uint256 base = loan.borrowedAmount;
 
-        uint256 delta =
-            (base * penaltyRatio * overdueDays) / 10000;
+        uint256 delta = (base * penaltyRatio * overdueDays) / 10000;
 
         return penalty + delta;
     }
-
 
     // ---------- Core: borrow using NFT stake as collateral ----------
 
@@ -216,7 +231,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
     /// @param tokenId NFT token ID used as collateral
     /// @param debtToken Address of the debt token (must be in allowedDebtTokens)
     /// @param amount Amount to borrow (cannot exceed maxBorrowable)
-    function borrowWithNFT(uint256 tokenId, address debtToken, uint256 amount) external nonReentrant {
+    /// @param loanDuration Loan duration in seconds
+    function borrowWithNFT(uint256 tokenId, address debtToken, uint256 amount, uint256 loanDuration) external nonReentrant {
         require(allowedDebtTokens[debtToken], "FarmLend: debt token not allowed");
         require(amount > 0, "FarmLend: zero amount");
 
@@ -251,11 +267,11 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         loan.borrowedAmount = amount;
         loan.startTime = block.timestamp;
         loan.endTime = block.timestamp + loanDuration;
+        loan.loanDuration = loanDuration;
         loan.lastInterestAccrualTime = block.timestamp;
         loan.accruedInterest = 0;
         loan.lastPenaltyAccrualTime = 0; // No penalty yet
         loan.accruedPenalty = 0;
-
 
         emit Borrow(msg.sender, tokenId, debtToken, amount);
     }
@@ -274,16 +290,12 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         _accrueInterest(loan);
         _accruePenalty(loan);
         // Overdue check: if current time exceeds loanGracePeriod, user cannot operate
-        if (block.timestamp > loan.endTime + loanGracePeriod) {
-            require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "FarmLend: Loan Grace Period exceeded, admin only");
-        } else {
-            require(loan.borrower == msg.sender, "FarmLend: not borrower");
-        }
+        require(block.timestamp < loan.endTime + loanGracePeriod, "FarmLend: loan overdue, cannot repay");
 
         // Calculate total debt
         uint256 principal = loan.borrowedAmount;
-        uint256 interest  = loan.accruedInterest;
-        uint256 penalty   = loan.accruedPenalty;
+        uint256 interest = loan.accruedInterest;
+        uint256 penalty = loan.accruedPenalty;
         uint256 totalDebt = principal + interest + penalty;
 
         if (amount > totalDebt) {
@@ -292,7 +304,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         address debtToken = loan.debtToken;
         require(IERC20(debtToken).balanceOf(msg.sender) >= amount, "FarmLend: insufficient balance");
-        
+
         // Transfer tokens
         IERC20(debtToken).transferFrom(msg.sender, address(vault), amount);
 
@@ -301,7 +313,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         // 1. Repay Penalty
         if (penalty > 0) {
-            if(remaining <= penalty){
+            if (remaining <= penalty) {
                 // repay partial penalty
                 loan.accruedPenalty -= remaining;
                 emit Repay(msg.sender, tokenId, debtToken, 0, 0, remaining, block.timestamp);
@@ -343,7 +355,7 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
     /// @notice Repay full loan
     function repay(uint256 tokenId) external {
-        (,,, uint256 totalDebt) = getLoanDebt(tokenId);
+        (, , , uint256 totalDebt) = getLoanDebt(tokenId);
         this.repay(tokenId, totalDebt);
     }
 
@@ -357,11 +369,13 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
             from = loan.startTime;
         }
 
+        uint256 interestRatio = loanDurationInterestRatios[loan.loanDuration];
+
         if (block.timestamp <= from) return;
 
         uint256 timeElapsed = block.timestamp - from;
 
-        uint256 interestAccrued = (loan.borrowedAmount * interestRatio * timeElapsed) / 1e18;
+        uint256 interestAccrued = (loan.borrowedAmount * interestRatio * timeElapsed) / (1e4 * 365 days);
 
         loan.accruedInterest += interestAccrued;
         loan.lastInterestAccrualTime = block.timestamp;
@@ -392,20 +406,18 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
 
         uint256 base = loan.borrowedAmount; // principal
 
-        uint256 delta =
-            (base * penaltyRatio * overdueDays) / 10000;
+        uint256 delta = (base * penaltyRatio * overdueDays) / 10000;
 
         loan.accruedPenalty += delta;
         loan.lastPenaltyAccrualTime = block.timestamp;
     }
-
 
     /// @notice Admin seize NFT after loan is overdue beyond grace period
     function seizeOverdueNFT(uint256 tokenId) external onlyRole(DEFAULT_ADMIN_ROLE) {
         Loan storage loan = loans[tokenId];
         require(loan.active, "FarmLend: no active loan");
         require(block.timestamp > loan.endTime + loanGracePeriod, "FarmLend: not overdue enough");
-        
+
         vault.releaseNFT(tokenId, msg.sender);
         loan.active = false;
     }
@@ -513,6 +525,8 @@ contract FarmLend is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         require(rewardPUSD <= C, "FarmLend: reward exceeds collateral");
 
         // 10. Update loan collateral & debt
+        _accrueInterest(loan);
+        _accruePenalty(loan);
         loan.borrowedAmount = B - x;
         loan.remainingCollateralAmount = C - rewardPUSD;
 
