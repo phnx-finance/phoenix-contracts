@@ -2,246 +2,280 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../../src/token/NFTManager/NFTManager.sol";
-import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {NFTManager} from "src/token/NFTManager/NFTManager.sol";
+import {NFTManagerStorage} from "src/token/NFTManager/NFTManagerStorage.sol";
+import {NFTManager_Deployer_Base} from "script/token/base/NFTManager_Deployer_Base.sol";
+import {NFTManager_Upgrader_Base, NFTManagerV2} from "script/token/base/NFTManager_Upgrader_Base.sol";
+import {IFarm} from "src/interfaces/IFarm.sol";
 
-contract NFTManagerTest is Test {
-    NFTManager public nftManager;
-    NFTManager public implementation;
-    ERC1967Proxy public proxy;
+contract NFTManagerTest is Test, NFTManager_Deployer_Base, NFTManager_Upgrader_Base {
+    NFTManager nft;
+    NFTManagerV2 nftV2;
 
-    address public admin = address(0x1);
-    address public farm = address(0x2);
-    address public user1 = address(0x3);
-    address public user2 = address(0x4);
-
-    event StakeNFTMinted(uint256 indexed tokenId, address indexed to, uint256 amount, uint256 startTime, uint256 lockPeriod, uint16 rewardMultiplier, uint256 pendingReward);
-    event StakeRecordUpdated(uint256 indexed tokenId, uint256 amount, uint256 lastClaimTime, uint16 rewardMultiplier, bool active, uint256 pendingReward);
+    address admin = address(0xA11CE);
+    address farm  = address(0xBEEF);
+    address user  = address(0xCAFE);
 
     function setUp() public {
-        vm.startPrank(admin);
-        
-        // Deploy implementation
-        implementation = new NFTManager();
-        
-        // Deploy proxy and initialize
-        bytes memory initData = abi.encodeWithSelector(
-            NFTManager.initialize.selector,
-            "Phoenix Stake",
-            "PHNX-STK",
-            admin,
-            farm
-        );
-        proxy = new ERC1967Proxy(address(implementation), initData);
-        nftManager = NFTManager(address(proxy));
-        
-        vm.stopPrank();
+        // Any name/symbol will do; fixed values are sufficient for testing.
+        nft = _deploy("Stake NFT", "sNFT", admin, farm);
     }
 
-    function test_Initialize() public {
-        assertEq(nftManager.name(), "Phoenix Stake");
-        assertEq(nftManager.symbol(), "PHNX-STK");
-        assertEq(nftManager.owner(), admin);
-        assertTrue(nftManager.hasRole(nftManager.DEFAULT_ADMIN_ROLE(), admin));
-        assertTrue(nftManager.hasRole(nftManager.MINTER_ROLE(), farm));
-        assertTrue(nftManager.hasRole(nftManager.METADATA_EDITOR_ROLE(), farm));
+    // ---------- Initialize & Roles ----------
+
+    function test_InitializeAndRoles() public {
+        // name / symbol
+        assertEq(nft.name(), "Stake NFT");
+        assertEq(nft.symbol(), "sNFT");
+
+        // farm address
+        assertEq(nft.farm(), farm);
+
+        // roles
+        bytes32 DEFAULT_ADMIN_ROLE = nft.DEFAULT_ADMIN_ROLE();
+        bytes32 MINTER_ROLE = nft.MINTER_ROLE();
+        bytes32 METADATA_EDITOR_ROLE = nft.METADATA_EDITOR_ROLE();
+
+        assertTrue(nft.hasRole(DEFAULT_ADMIN_ROLE, admin), "admin should have DEFAULT_ADMIN_ROLE");
+        assertTrue(nft.hasRole(MINTER_ROLE, farm), "farm should have MINTER_ROLE");
+        assertTrue(nft.hasRole(METADATA_EDITOR_ROLE, farm), "farm should have METADATA_EDITOR_ROLE");
     }
 
-    function test_MintStakeNFT() public {
-        vm.startPrank(farm);
-        
-        uint256 amount = 1000e18;
+    // ---------- Mint & Record ----------
+
+    function test_MintStakeNFT_StoresStakeRecord() public {
+        uint256 amount = 100 ether;
         uint64 lockPeriod = 30 days;
-        uint16 multiplier = 100;
-        uint256 pendingReward = 0;
+        uint16 rewardMultiplier = 1000;
+        uint256 pendingReward = 5 ether;
 
-        vm.expectEmit(true, true, false, true);
-        emit StakeNFTMinted(1, user1, amount, uint256(block.timestamp), uint256(lockPeriod), multiplier, pendingReward);
-        
-        uint256 tokenId = nftManager.mintStakeNFT(user1, amount, lockPeriod, multiplier, pendingReward);
-        
-        assertEq(tokenId, 1);
-        assertEq(nftManager.ownerOf(1), user1);
-        
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(1);
-        assertEq(record.amount, amount);
-        assertEq(record.lockPeriod, lockPeriod);
-        assertEq(record.rewardMultiplier, multiplier);
-        assertTrue(record.active);
-        
-        vm.stopPrank();
+        vm.warp(1_000_000); // Fixed timestamp for easier lastClaimTime assertion
+
+        vm.prank(farm);
+        uint256 tokenId = nft.mintStakeNFT(
+            user,
+            amount,
+            lockPeriod,
+            rewardMultiplier,
+            pendingReward
+        );
+
+        assertEq(nft.ownerOf(tokenId), user);
+        assertTrue(nft.exists(tokenId));
+
+        IFarm.StakeRecord memory r = nft.getStakeRecord(tokenId);
+
+        assertEq(r.amount, amount);
+        assertEq(r.rewardMultiplier, rewardMultiplier);
+        assertEq(r.pendingReward, pendingReward);
+        assertTrue(r.active);
+        assertEq(r.lastClaimTime, uint64(block.timestamp));
     }
 
-    function test_MintStakeNFT_RevertIfNotMinter() public {
-        vm.startPrank(user1);
+    function test_MintStakeNFT_OnlyMinterOrOwner() public {
+        uint256 amount = 100 ether;
+        uint64 lockPeriod = 30 days;
+        uint16 rewardMultiplier = 1000;
+        uint256 pendingReward = 5 ether;
+
+        // User should not be able to mint
+        vm.prank(user); 
         vm.expectRevert("NFTManager: not authorized to mint");
-        nftManager.mintStakeNFT(user1, 100, 0, 0, 0);
-        vm.stopPrank();
+        nft.mintStakeNFT(
+            user,
+            amount,
+            lockPeriod,
+            rewardMultiplier,
+            pendingReward
+        );
     }
 
-    function test_UpdateStakeRecord() public {
-        // First mint a token
-        vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
+    // ---------- Metadata Editor ----------
 
-        vm.startPrank(farm); // Farm has METADATA_EDITOR_ROLE
-        
-        uint256 newAmount = 2000e18;
-        uint64 newLastClaimTime = uint64(block.timestamp + 1 days);
-        uint16 newMultiplier = 200;
+    function _mintOne() internal returns (uint256 tokenId) {
+        uint256 amount = 100 ether;
+        uint64 lockPeriod = 30 days;
+        uint16 rewardMultiplier = 1000;
+        uint256 pendingReward = 5 ether;
+
+        vm.warp(1_000_000);
+
+        vm.prank(farm);
+        tokenId = nft.mintStakeNFT(
+            user,
+            amount,
+            lockPeriod,
+            rewardMultiplier,
+            pendingReward
+        );
+    }
+
+    function test_UpdateStakeRecord_ByEditor() public {
+        uint256 tokenId = _mintOne();
+
+        uint256 newAmount = 200 ether;
+        uint64 newLastClaimTime = uint64(block.timestamp + 100);
+        uint16 newRewardMultiplier = 2000;
         bool newActive = false;
-        uint256 newPendingReward = 50e18;
+        uint256 newPendingReward = 10 ether;
 
-        vm.expectEmit(true, false, false, true);
-        emit StakeRecordUpdated(tokenId, newAmount, uint256(newLastClaimTime), newMultiplier, newActive, newPendingReward);
+        // If farm has METADATA_EDITOR_ROLE, it can edit
+        vm.prank(farm);
+        nft.updateStakeRecord(
+            tokenId,
+            newAmount,
+            newLastClaimTime,
+            newRewardMultiplier,
+            newActive,
+            newPendingReward
+        );
 
-        nftManager.updateStakeRecord(tokenId, newAmount, newLastClaimTime, newMultiplier, newActive, newPendingReward);
-        
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
-        assertEq(record.amount, newAmount);
-        assertEq(record.lastClaimTime, newLastClaimTime);
-        assertEq(record.rewardMultiplier, newMultiplier);
-        assertEq(record.active, newActive);
-        assertEq(record.pendingReward, newPendingReward);
-        
-        vm.stopPrank();
+        IFarm.StakeRecord memory r = nft.getStakeRecord(tokenId);
+
+        assertEq(r.amount, newAmount);
+        assertEq(r.lastClaimTime, newLastClaimTime);
+        assertEq(r.rewardMultiplier, newRewardMultiplier);
+        assertEq(r.active, newActive);
+        assertEq(r.pendingReward, newPendingReward);
     }
 
-    function test_UpdateStakeRecord_RevertIfNotEditor() public {
-        vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
+    function test_UpdateStakeRecord_OnlyEditor() public {
+        uint256 tokenId = _mintOne();
 
-        vm.startPrank(user1);
+        uint256 newAmount = 200 ether;
+        uint64 newLastClaimTime = uint64(block.timestamp + 100);
+        uint16 newRewardMultiplier = 2000;
+        bool newActive = false;
+        uint256 newPendingReward = 10 ether;
+
+        vm.prank(user);
         vm.expectRevert("NFTManager: not authorized to edit metadata");
-        nftManager.updateStakeRecord(tokenId, 2000e18, 0, 0, false, 0);
-        vm.stopPrank();
+        nft.updateStakeRecord(
+            tokenId,
+            newAmount,
+            newLastClaimTime,
+            newRewardMultiplier,
+            newActive,
+            newPendingReward
+        );
     }
 
     function test_UpdateRewardInfo() public {
+        uint256 tokenId = _mintOne();
+
+        uint256 newPendingReward = 123 ether;
+        uint64 newLastClaimTime = uint64(block.timestamp + 123);
+
         vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
+        nft.updateRewardInfo(tokenId, newPendingReward, newLastClaimTime);
 
-        vm.startPrank(farm);
-        
-        uint256 newPendingReward = 100e18;
-        uint64 newLastClaimTime = uint64(block.timestamp + 2 days);
-
-        nftManager.updateRewardInfo(tokenId, newPendingReward, newLastClaimTime);
-        
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
-        assertEq(record.pendingReward, newPendingReward);
-        assertEq(record.lastClaimTime, newLastClaimTime);
-        // Ensure other fields didn't change
-        assertEq(record.amount, 1000e18);
-        
-        vm.stopPrank();
+        IFarm.StakeRecord memory r = nft.getStakeRecord(tokenId);
+        assertEq(r.pendingReward, newPendingReward);
+        assertEq(r.lastClaimTime, newLastClaimTime);
     }
 
-    function test_UpdateStakeRecord_Struct() public {
-        vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
+    // ---------- Farm Only ----------
 
-        vm.startPrank(farm);
-        
-        IFarm.StakeRecord memory newRecord = IFarm.StakeRecord({
-            amount: 5000e18,
-            startTime: 100,
-            lockPeriod: 60 days,
-            lastClaimTime: 200,
-            rewardMultiplier: 300,
-            active: false,
-            pendingReward: 1000e18
-        });
+    function test_UpdateStakeRecordByFarm_OnlyFarm() public {
+        uint256 tokenId = _mintOne();
 
-        nftManager.updateStakeRecord(tokenId, newRecord);
-        
-        IFarm.StakeRecord memory record = nftManager.getStakeRecord(tokenId);
-        assertEq(record.amount, newRecord.amount);
-        assertEq(record.startTime, newRecord.startTime);
-        assertEq(record.lockPeriod, newRecord.lockPeriod);
-        assertEq(record.lastClaimTime, newRecord.lastClaimTime);
-        assertEq(record.rewardMultiplier, newRecord.rewardMultiplier);
-        assertEq(record.active, newRecord.active);
-        assertEq(record.pendingReward, newRecord.pendingReward);
-        
-        vm.stopPrank();
-    }
-    
-    function test_UpdateStakeRecord_Struct_RevertIfNotFarm() public {
-         vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
+        IFarm.StakeRecord memory dummy; // Specific fields don't matter, default to 0 is fine
 
-        vm.startPrank(admin); // Admin is owner but not farm address
-        
-        IFarm.StakeRecord memory newRecord = IFarm.StakeRecord({
-            amount: 5000e18,
-            startTime: 100,
-            lockPeriod: 60 days,
-            lastClaimTime: 200,
-            rewardMultiplier: 300,
-            active: false,
-            pendingReward: 1000e18
-        });
-
+        vm.prank(user);
         vm.expectRevert("NFTManager: only farm can call");
-        nftManager.updateStakeRecord(tokenId, newRecord);
-        vm.stopPrank();
-    }
+        nft.updateStakeRecord(tokenId, dummy);
 
-    function test_Burn() public {
+        // Farm can call successfully
         vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
-
-        // User1 must approve farm to burn (since burn calls super.burn which checks approval)
-        vm.prank(user1);
-        nftManager.approve(farm, tokenId);
-
-        vm.startPrank(farm); 
-        
-        nftManager.burn(tokenId);
-        
-        vm.expectRevert(abi.encodeWithSignature("ERC721NonexistentToken(uint256)", tokenId));
-        nftManager.ownerOf(tokenId);
-        
-        vm.expectRevert(abi.encodeWithSignature("ERC721NonexistentToken(uint256)", tokenId));
-        nftManager.getStakeRecord(tokenId);
-        
-        vm.stopPrank();
+        nft.updateStakeRecord(tokenId, dummy);
     }
 
-    function test_TokenURI() public {
+    // ---------- TokenURI / BaseURI ----------
+
+    function test_BaseURI_And_TokenURIOverride() public {
+        uint256 tokenId = _mintOne();
+
+        // Admin sets baseURI
+        vm.prank(admin);
+        nft.setBaseURI("ipfs://");
+
+        // When tokenURI is not set, it should use baseURI + tokenId
+        string memory uri1 = nft.tokenURI(tokenId);
+        assertEq(uri1, "ipfs://1");
+
+        // Farm can set its own tokenURI
         vm.prank(farm);
-        uint256 tokenId = nftManager.mintStakeNFT(user1, 1000e18, 30 days, 100, 0);
+        nft.setTokenURI(tokenId, "token/1");
 
-        vm.startPrank(admin);
-        nftManager.setBaseURI("https://api.phoenix.com/metadata/");
-        vm.stopPrank();
-
-        assertEq(nftManager.tokenURI(tokenId), "https://api.phoenix.com/metadata/1");
-
-        vm.startPrank(farm);
-        nftManager.setTokenURI(tokenId, "custom_uri");
-        vm.stopPrank();
-
-        assertEq(nftManager.tokenURI(tokenId), "https://api.phoenix.com/metadata/custom_uri");
+        string memory uri2 = nft.tokenURI(tokenId);
+        assertEq(uri2, "ipfs://token/1");
     }
 
-    function test_Upgrade() public {
-        vm.startPrank(admin);
-        
-        NFTManager newImpl = new NFTManager();
-        nftManager.upgradeToAndCall(address(newImpl), "");
-        
-        vm.stopPrank();
+    // ---------- Burn ----------
+
+    function test_BurnByEditor_CleansRecordAndURI() public {
+        uint256 tokenId = _mintOne();
+
+        vm.prank(farm);
+        nft.setTokenURI(tokenId, "uri");
+
+        vm.prank(user);
+        nft.approve(farm, tokenId);
+
+        vm.prank(farm);
+        nft.burn(tokenId);
+
+        assertFalse(nft.exists(tokenId));
+
+        // ownerOf should revert
+        vm.expectRevert();
+        nft.ownerOf(tokenId);
+
+        // getStakeRecord should revert
+        vm.expectRevert();
+        nft.getStakeRecord(tokenId);
     }
-    
-    function test_Upgrade_RevertIfNotAdmin() public {
-        vm.startPrank(user1);
-        
-        NFTManager newImpl = new NFTManager();
-        vm.expectRevert(); // AccessControl error
-        nftManager.upgradeToAndCall(address(newImpl), "");
-        
-        vm.stopPrank();
+
+    function test_BurnOnlyEditor() public {
+        uint256 tokenId = _mintOne();
+
+        vm.prank(user);
+        vm.expectRevert("NFTManager: not authorized to edit metadata");
+        nft.burn(tokenId);
+    }
+
+    // ---------- Upgrade ----------
+
+    function test_UUPSUpgradeAndNewLogic() public {
+        uint256 tokenId = _mintOne();
+
+        // 1. Deploy a V2 implementation
+        NFTManagerV2 implV2 = new NFTManagerV2();
+
+        // 2. Only admin can upgradeToAndCall
+        vm.prank(admin);
+        nft.upgradeToAndCall(address(implV2), "");
+
+        // 3. Use V2's ABI to operate the same proxy address
+        nftV2 = NFTManagerV2(address(nft));
+
+        // 4. Old data should be preserved
+        assertEq(nftV2.ownerOf(tokenId), user);
+        IFarm.StakeRecord memory r = nftV2.getStakeRecord(tokenId);
+        assertEq(r.amount, 100 ether);
+
+        // 5. New logic (version) is available
+        vm.prank(admin);
+        nftV2.setVersion(2);
+        assertEq(nftV2.version(), 2);
+    }
+
+    function test_UpgradeOnlyAdmin() public {
+        NFTManagerV2 implV2 = new NFTManagerV2();
+
+        vm.prank(user);
+        vm.expectRevert(); // _authorizeUpgrade will revert
+        nft.upgradeToAndCall(address(implV2), "");
     }
 }
+

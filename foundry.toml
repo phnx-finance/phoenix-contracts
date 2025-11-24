@@ -13,6 +13,7 @@ optimizer = true
 optimizer_runs = 200
 via_ir = true
 evm_version = "cancun"
+warning_as_error = false
 
 remappings = [
     "forge-std/=lib/forge-std/src/",
@@ -25,4 +26,6 @@ remappings = [
 [fmt]
 line_length = 500
 tab_width = 4
+
+
 

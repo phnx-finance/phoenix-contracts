@@ -25,6 +25,7 @@ contract PUSD is Initializable, ERC20Upgradeable, AccessControlUpgradeable, Paus
 
         cap = _cap;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(MINTER_ROLE, admin);
     }
 
     // Note: Paused/Unpaused events are already defined in PausableUpgradeable
