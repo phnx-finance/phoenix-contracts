@@ -542,7 +542,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function getTokenPUSDValue(address assetToken, uint256 amount) external view returns (uint256 pusdAmount, uint256 referenceTimestamp) {
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
-        require(amount > 0, "Vault: Amount must be greater than 0");
+        require(amount >= 0, "Vault: Amount must be greater than or equal to 0");
         require(oracleManager != address(0), "Vault: Oracle not set");
 
         // Must get price from Oracle, fail if no price
@@ -566,7 +566,7 @@ contract Vault is Initializable, AccessControlUpgradeable, PausableUpgradeable, 
      */
     function getPUSDAssetValue(address assetToken, uint256 pusdAmount) external view returns (uint256 amount, uint256 referenceTimestamp) {
         require(supportedAssets[assetToken], "Vault: Unsupported assetToken");
-        require(pusdAmount >= 0, "Vault: Amount must be greater than 0");
+        require(pusdAmount >= 0, "Vault: Amount must be greater than or equal to 0");
         require(oracleManager != address(0), "Vault: Oracle not set");
 
         // Must get price from Oracle, fail if no price
